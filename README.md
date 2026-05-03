@@ -96,6 +96,31 @@ ai-firewall/
 
 ---
 
+## ⚠️ Known Limitations
+
+- **Keyword bypass**: Layer 1 normalises common obfuscation (leetspeak, unicode lookalikes,
+  base64, spaced characters) but determined adversaries can still evade pattern matching.
+  Layer 2 API classification is the primary defence against novel attacks.
+
+- **Forwarding scope**: This tool classifies and blocks prompts at the interface layer.
+  It does not govern what happens if the same prompt reaches an LLM through another channel.
+
+- **Base64 detection**: Currently scans whole whitespace-delimited tokens only.
+  Base64 split across multiple tokens or embedded mid-word is not caught. (v2 roadmap)
+
+- **Threshold sensitivity**: Scoring thresholds are conservative by design —
+  false positives (blocked legitimate prompts) are preferred over false negatives
+  (missed attacks). Tune `SCORE_THRESHOLD_HIGH` and `SCORE_THRESHOLD_MEDIUM` in
+  `detector.py` for your use case.
+
+- **Keyword false positives**: Phrases like `"act as a security researcher"` trigger
+  the `persona_hijack` pattern (`act as`) and score MEDIUM despite being legitimate.
+  Layer 2 API classification will typically return CLEAN in these cases, but the
+  keyword score alone is sufficient for a MEDIUM verdict. Accepted behaviour — the
+  conservative threshold is intentional.
+
+---
+
 ## 🗺️ Roadmap
 
 - [ ] SQLite database for persistent logging
@@ -108,7 +133,7 @@ ai-firewall/
 
 ## 👤 Author
 
-**Leighton Wilson** — SOC Analyst | LeightonSec 
+**Leighton Wilson** — Security Researcher | LeightonSec
 [LeightonSec GitHub](https://github.com/LeightonSec)
 
 ---

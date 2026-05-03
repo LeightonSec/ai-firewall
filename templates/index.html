@@ -156,6 +156,31 @@
         }
 
         .loading { color: #666; font-size: 0.85rem; margin-top: 8px; }
+
+        .blocked-banner {
+            background: #ff4444;
+            color: #fff;
+            padding: 12px 16px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 1rem;
+            letter-spacing: 1px;
+            margin-bottom: 16px;
+            text-align: center;
+        }
+
+        .rate-limit-banner {
+            background: #ffaa00;
+            color: #000;
+            padding: 12px 16px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 0.95rem;
+            letter-spacing: 1px;
+            margin-bottom: 16px;
+            text-align: center;
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -165,6 +190,10 @@
             <p>Jailbreak Detection System — LeightonSec</p>
         </header>
 
+        <div id="rateLimitBanner" class="rate-limit-banner">
+            ⏱ Rate limit reached — too many requests. Please wait before submitting again.
+        </div>
+
         <div class="input-section">
             <textarea id="prompt" placeholder="Enter prompt to analyse..."></textarea>
             <br>
@@ -173,6 +202,9 @@
         </div>
 
         <div class="result" id="result">
+            <div id="blockedBanner" class="blocked-banner" style="display:none;">
+                🚫 BLOCKED — Prompt intercepted. This prompt was not forwarded.
+            </div>
             <div id="riskBadge" class="risk-badge"></div>
             <div class="result-row">
                 <span class="label">API Verdict</span>
@@ -236,6 +268,13 @@
                     body: JSON.stringify({ prompt })
                 });
 
+                const rateLimitBanner = document.getElementById("rateLimitBanner");
+                if (response.status === 429) {
+                    rateLimitBanner.style.display = "block";
+                    return;
+                }
+                rateLimitBanner.style.display = "none";
+
                 const data = await response.json();
                 displayResult(data);
                 loadStats();
@@ -251,6 +290,9 @@
             const resultDiv = document.getElementById("result");
             resultDiv.style.display = "block";
             resultDiv.className = `result risk-${data.risk_level}`;
+
+            const blockedBanner = document.getElementById("blockedBanner");
+            blockedBanner.style.display = data.blocked ? "block" : "none";
 
             const badge = document.getElementById("riskBadge");
             badge.textContent = `RISK: ${data.risk_level}`;

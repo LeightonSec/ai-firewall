@@ -1,34 +1,25 @@
 import os
-from collections import defaultdict
-from time import time
 from flask import Flask, request, jsonify, render_template
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from detector import analyse_prompt
 from logger import log_detection, get_stats
 
 app = Flask(__name__)
 
-_rate_store: dict = defaultdict(list)
-RATE_LIMIT  = 30
-RATE_WINDOW = 60
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=["200 per day", "50 per hour"],
+    storage_uri="memory://"
+)
 
-
-def _is_rate_limited(ip: str) -> bool:
-    now = time()
-    _rate_store[ip] = [t for t in _rate_store[ip] if now - t < RATE_WINDOW]
-    if len(_rate_store[ip]) >= RATE_LIMIT:
-        return True
-    _rate_store[ip].append(now)
-    if len(_rate_store) > 10000:
-        _rate_store.clear()
-    return False
-
-
-def _get_ip() -> str:
-    forwarded = request.headers.get('X-Forwarded-For', '')
-    if forwarded:
-        ip = forwarded.split(',')[0].strip()
-        return ''.join(c for c in ip if c.isprintable() and c not in '\r\n')[:45] or '0.0.0.0'
-    return request.remote_addr or '0.0.0.0'
+@app.errorhandler(429)
+def rate_limit_handler(e):
+    return jsonify({
+        "error": "Rate limit exceeded",
+        "message": "Too many requests. Please wait before submitting again."
+    }), 429
 
 @app.route("/")
 def index():
@@ -36,10 +27,9 @@ def index():
     return render_template("index.html")
 
 @app.route("/analyse", methods=["POST"])
+@limiter.limit("10 per minute")
 def analyse():
     """Receive prompt and return analysis"""
-    if _is_rate_limited(_get_ip()):
-        return jsonify({"error": "Too many requests"}), 429
 
     data = request.get_json()
 
@@ -55,8 +45,9 @@ def analyse():
         return jsonify({"error": "Prompt too long (max 2000 chars)"}), 400
     
     result = analyse_prompt(prompt)
+    result["blocked"] = result["risk_level"] == "HIGH"
     log_detection(result)
-    
+
     return jsonify(result)
 
 @app.route("/stats")

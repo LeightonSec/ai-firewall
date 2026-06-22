@@ -26,6 +26,11 @@ def log_detection(result: dict):
         "api_verdict": result["api_verdict"],
         "api_confidence": result["api_confidence"],
         "api_reason": result["api_reason"],
+        # Output-security signals: an anomalous/degraded API response is a
+        # possible classifier-manipulation attempt and is queryable in the log.
+        "api_anomalous": result.get("api_anomalous", False),
+        "api_degraded": result.get("api_degraded", False),
+        "api_short_circuited": result.get("api_short_circuited", False),
         "keyword_score": result["keyword_score"],
         "keyword_matches": result["keyword_matches"]
     }

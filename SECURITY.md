@@ -96,8 +96,8 @@ deep scan instead of being force-flagged.
 | Claude API scope | Single `messages` call, explicit `max_tokens`, no tool use / file upload / streaming | ✅ |
 | Logging | Write-only from the pipeline; no read-back path into detection | ✅ |
 | Web interface | Bound to `127.0.0.1`; rate-limited (`flask-limiter`, 10/min on `/analyse`) | ✅ |
-| Error exposure | No stack traces returned to the UI | 🔜 verify/harden |
-| Auth | Authentication layer for the interface | 🔜 Gate 3 |
+| Error exposure | Sanitized 4xx/5xx handlers, no tracebacks; `debug=False` | ✅ (Gate 3, §8) |
+| Auth | Dual model — session login (human) + API key (machine) | ✅ (Gate 3, §8) |
 
 ## 6. RAG Pipeline Security 📝 (no retrieval today — documented for when it lands)
 
@@ -137,6 +137,34 @@ Detections persist to SQLite (`logs/detections.db`), replacing the flat JSON log
   re-asserted (`init_db`) on every call, opening a short-lived connection each
   time. For production, initialise once at startup and reuse a connection/pool.
 
+## 8. Authentication & web hardening (Gate 3) ✅
+
+Two kinds of caller get two kinds of auth — the firewall is both a human
+dashboard and a machine endpoint.
+
+- **Human → session login.** The dashboard and all data endpoints (`/stats`,
+  `/logs`, `/history`) require a logged-in session. Credentials live in env
+  vars only; the password is stored as a **werkzeug hash**, never plaintext
+  (`python auth.py hash <pw>` generates it). Username and password are both
+  checked constant-time, so a wrong username can't be distinguished from a
+  wrong password by timing.
+- **Machine → API key.** `POST /analyse` requires an `X-API-Key` header,
+  compared constant-time (`hmac.compare_digest`). The two domains are
+  independent: a logged-in human still cannot call `/analyse` without the key
+  (proven by `test_analyse_does_not_use_session`).
+- **CSRF — handled by the auth model, no Flask-WTF.** The only state-changing
+  endpoint (`POST /analyse`) is authenticated by a custom header that cross-site
+  attacker JS cannot set without CORS; the session-cookie endpoints are all GET.
+  The session cookie is `HttpOnly` + `SameSite=Strict` (+ `Secure` once HTTPS
+  arrives in Gate 4) as defense-in-depth.
+- **Session key.** `FIREWALL_SECRET_KEY` from env; a random `os.urandom(32)`
+  fallback for local dev — never a hardcoded key.
+- **Error hardening.** Sanitized handlers for 400/401/403/404/429/500 return
+  generic JSON with no tracebacks; `debug=False`. Security headers on every
+  response: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+  `Referrer-Policy: no-referrer`, `Content-Security-Policy: default-src 'self'`.
+- **Zero new dependencies** — werkzeug ships with Flask.
+
 ---
 
 ## Gate roadmap
@@ -145,14 +173,17 @@ Detections persist to SQLite (`logs/detections.db`), replacing the flat JSON log
   hardening, fail-closed output validation, tiered short-circuit. ✅
 - **Gate 2 — persistence:** SQLite store, `/history` query interface, anomaly
   stream (`anomalous_only`). ✅ (see §7)
-- **Gate 3 — auth & error hardening** for the web interface.
+- **Gate 3 — auth & error hardening:** dual auth (session + API key), sanitized
+  errors, security headers. ✅ (see §8)
 - **Gate 4 — deployment:** Docker, cloud.
 - **Gate 5 — detection improvements:** split/embedded base64, keyword
   false-positive reduction.
 
 ## Testing
 
-`test_gate1.py` (hardening) and `test_gate2.py` (persistence) run **offline** —
-no API key needed (the client is lazily constructed; the DB layer is isolated
-per-test to a temp file). `test_detector.py` is the end-to-end detection suite
-and requires a live `ANTHROPIC_API_KEY`.
+`test_gate1.py` (hardening), `test_gate2.py` (persistence), and `test_gate3.py`
+(auth + error hardening) run **offline** — no API key needed (the client is
+lazily constructed, the DB layer is temp-file isolated per test, and the auth
+tests use Flask's `test_client` with a monkeypatched detector). `test_detector.py`
+is the end-to-end detection suite and requires a live `ANTHROPIC_API_KEY`.
+Run all: `pytest test_gate1.py test_gate2.py test_gate3.py -q` → 45 passing.

@@ -15,11 +15,12 @@ Built as part of the LeightonSec SOC Toolkit.
 ## Architecture
 - `app.py` — Flask server, API routes, input validation (2000-char clamp), rate limiting
 - `detector.py` — Two-layer detection (keyword scan + Claude API), risk scoring
-- `logger.py` — JSON logging and statistics
+- `logger.py` — SQLite persistence (detections + stats + history query + legacy importer)
 - `templates/index.html` — Web interface and live dashboard
-- `logs/detections.json` — Detection log (gitignored)
-- `SECURITY.md` — Threat model and defended pillars (Gate 1)
+- `logs/detections.db` — SQLite detection store (gitignored)
+- `SECURITY.md` — Threat model and defended pillars (Gate 1–2)
 - `test_gate1.py` — Offline unit tests for the hardening fixes
+- `test_gate2.py` — Offline unit tests for the persistence layer
 - `test_detector.py` — End-to-end detection suite (requires a live API key)
 
 ## Current Status
@@ -36,9 +37,14 @@ Built as part of the LeightonSec SOC Toolkit.
    - Fail-CLOSED output validation: malformed/steered/oversized responses yield a
      None verdict (SUSPICIOUS), never default to CLEAN
    - Tiered short-circuit: unambiguous attack markers classified locally, no API call
+✅ Gate 2 — persistence:
+   - SQLite store replacing the JSON log; Gate 1 flags (anomalous/degraded/
+     short_circuited) are first-class indexed columns
+   - /history endpoint with risk_level, date-range, and anomalous_only filters
+   - Prompt stored as 100-char prefix + SHA-256 hash, never raw (privacy)
+   - One-time legacy JSON importer: `python logger.py import`
 
 ## Next Steps
-- [ ] SQLite database replacing JSON logs
 - [ ] Authentication layer for web interface (Gate 3)
 - [ ] Docker containerisation (Gate 4)
 - [ ] Split/embedded base64 detection (input-side gap noted in normalise_prompt)
@@ -48,7 +54,7 @@ Built as part of the LeightonSec SOC Toolkit.
 ## Tech Stack
 - Python, Flask
 - Anthropic Claude API (claude-haiku-4-5-20251001)
-- python-dotenv, JSON
+- python-dotenv, SQLite
 
 ## Security Rules
 - API key in .env — never committed

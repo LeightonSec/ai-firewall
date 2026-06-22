@@ -116,13 +116,35 @@ Gate 1 primitives are the right foundation. The threats and required defences:
 - **Source confusion** — system instructions, user input, and retrieved context
   are never mixed in one block; each is labelled.
 
+## 7. Persistence & data handling (Gate 2) ✅
+
+Detections persist to SQLite (`logs/detections.db`), replacing the flat JSON log.
+
+- **Prompt data minimisation:** the raw prompt is **never stored**. Each row
+  keeps a 100-char prefix (pattern recognition) plus a SHA-256 hash of the full
+  prompt (dedup / "seen this attack before"). Full-prompt retention is a
+  deployment-time policy decision, not baked into the tool — the privacy-safe
+  default ships.
+- **Queryable anomaly stream:** the Gate 1 `anomalous` / `degraded` /
+  `short_circuited` flags are first-class indexed columns. `GET
+  /history?anomalous_only=true` returns every steered or degraded response —
+  i.e. possible classifier-manipulation attempts.
+- **Input validation on the query API:** `/history` validates `risk_level`
+  against the allowed set, coerces `limit` to an integer and caps it at 500.
+- **Concurrency:** SQLite inserts replace the previous read-whole-file →
+  rewrite JSON path, which raced under concurrent requests.
+- **Known inefficiency (acceptable for a local/portfolio tool):** the schema is
+  re-asserted (`init_db`) on every call, opening a short-lived connection each
+  time. For production, initialise once at startup and reuse a connection/pool.
+
 ---
 
 ## Gate roadmap
 
-- **Gate 1 — pipeline hardening (this document):** input hardening, classifier
-  prompt hardening, fail-closed output validation, tiered short-circuit. ✅
-- **Gate 2 — persistence:** SQLite log + query interface; dedicated anomaly stream.
+- **Gate 1 — pipeline hardening:** input hardening, classifier prompt
+  hardening, fail-closed output validation, tiered short-circuit. ✅
+- **Gate 2 — persistence:** SQLite store, `/history` query interface, anomaly
+  stream (`anomalous_only`). ✅ (see §7)
 - **Gate 3 — auth & error hardening** for the web interface.
 - **Gate 4 — deployment:** Docker, cloud.
 - **Gate 5 — detection improvements:** split/embedded base64, keyword
@@ -130,6 +152,7 @@ Gate 1 primitives are the right foundation. The threats and required defences:
 
 ## Testing
 
-`test_gate1.py` covers the hardening fixes **offline** (no API key needed — the
-client is lazily constructed). `test_detector.py` is the end-to-end detection
-suite and requires a live `ANTHROPIC_API_KEY`.
+`test_gate1.py` (hardening) and `test_gate2.py` (persistence) run **offline** —
+no API key needed (the client is lazily constructed; the DB layer is isolated
+per-test to a temp file). `test_detector.py` is the end-to-end detection suite
+and requires a live `ANTHROPIC_API_KEY`.

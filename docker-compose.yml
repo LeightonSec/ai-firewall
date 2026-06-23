@@ -1,0 +1,14 @@
+services:
+  ai-firewall:
+    build: .
+    image: ai-firewall:latest
+    # Bind to localhost on the host — not exposed to the network for local runs.
+    ports:
+      - "127.0.0.1:5000:5000"
+    # Secrets injected at runtime, never baked into the image.
+    env_file:
+      - .env
+    # Persist the SQLite detection store across container restarts.
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped

@@ -7,3 +7,6 @@ logs/
 __pycache__/
 *.pyc
 .DS_Store
+
+# Added by ggshield
+.cache_ggshield

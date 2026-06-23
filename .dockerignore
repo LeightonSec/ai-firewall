@@ -1,0 +1,18 @@
+# Never ship secrets, local state, dev tooling, or VCS into the image.
+.env
+.env.example
+.venv/
+venv/
+logs/
+.git/
+.github/
+__pycache__/
+*.pyc
+.pytest_cache/
+test_*.py
+*.md
+.gitignore
+.dockerignore
+.pre-commit-config.yaml
+Dockerfile
+docker-compose.yml

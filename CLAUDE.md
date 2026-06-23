@@ -20,7 +20,9 @@ Built as part of the LeightonSec SOC Toolkit.
 - `templates/index.html` — Web dashboard · `templates/login.html` — login page
 - `logs/detections.db` — SQLite detection store (gitignored)
 - `.env.example` — Template for required env vars (copy to gitignored .env)
-- `SECURITY.md` — Threat model and defended pillars (Gate 1–3)
+- `Dockerfile` / `.dockerignore` / `docker-compose.yml` — Containerization (non-root, gunicorn)
+- `.github/workflows/ci.yml` — CI: offline tests → image build → Trivy scan
+- `SECURITY.md` — Threat model and defended pillars (Gate 1–4a)
 - `test_gate1.py` / `test_gate2.py` / `test_gate3.py` — Offline unit tests (45 total)
 - `test_detector.py` — End-to-end detection suite (requires a live API key)
 
@@ -50,17 +52,24 @@ Built as part of the LeightonSec SOC Toolkit.
    - Hashed env credentials (werkzeug), constant-time compares, SameSite=Strict
    - Sanitized 4xx/5xx handlers (no tracebacks) + security headers
    - CSRF handled by the auth model (no Flask-WTF) — see SECURITY.md §8
+✅ Gate 4a — containerization & hardening:
+   - Dockerfile (multi-stage, non-root uid 10001, explicit COPYs — no baked secrets)
+   - gunicorn (single worker); ProxyFix + HSTS behind TLS; pinned requirements.txt
+   - docker-compose (localhost-bound, volume for SQLite, env_file secrets)
+   - GitHub Actions CI: 45 offline tests → image build → Trivy (fail on fixable CRIT/HIGH)
+   - Live test_detector.py smoke test run with real key: 18/20 (2 misses are Gate 5 tuning)
 
 ## Next Steps
-- [ ] Docker containerisation + cloud/AWS deploy (Gate 4); set FIREWALL_COOKIE_SECURE, HSTS
-- [ ] Split/embedded base64 detection (input-side gap noted in normalise_prompt) (Gate 5)
+- [ ] Gate 4b — cloud deploy: target decision (ECS Fargate vs App Runner), managed
+      secrets (Secrets Manager/SSM), HTTPS; set FIREWALL_TRUST_PROXY + FIREWALL_COOKIE_SECURE
+- [ ] Gate 5 — detection: split/embedded base64; leetspeak-malware → HIGH; keyword FP reduction
 - [ ] Secure RAG pipeline (only if/when retrieval is added — see SECURITY.md)
 - [ ] Alert integration with Incident Tracker
 
 ## Tech Stack
-- Python, Flask
+- Python, Flask, gunicorn
 - Anthropic Claude API (claude-haiku-4-5-20251001)
-- python-dotenv, SQLite, werkzeug (auth)
+- python-dotenv, SQLite, werkzeug (auth); Docker + GitHub Actions + Trivy (CI/deploy)
 
 ## Security Rules
 - API key in .env — never committed

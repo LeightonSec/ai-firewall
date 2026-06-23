@@ -13,14 +13,15 @@ Built as part of the LeightonSec SOC Toolkit.
 - **Gap it fills:** AI/LLM threat classification and jailbreak detection
 
 ## Architecture
-- `app.py` — Flask server, API routes, input validation (2000-char clamp), rate limiting
+- `app.py` — Flask server, API routes, auth gating, sanitized errors, security headers
+- `auth.py` — Dual auth: session login (human) + API key (machine); werkzeug hashes
 - `detector.py` — Two-layer detection (keyword scan + Claude API), risk scoring
 - `logger.py` — SQLite persistence (detections + stats + history query + legacy importer)
-- `templates/index.html` — Web interface and live dashboard
+- `templates/index.html` — Web dashboard · `templates/login.html` — login page
 - `logs/detections.db` — SQLite detection store (gitignored)
-- `SECURITY.md` — Threat model and defended pillars (Gate 1–2)
-- `test_gate1.py` — Offline unit tests for the hardening fixes
-- `test_gate2.py` — Offline unit tests for the persistence layer
+- `.env.example` — Template for required env vars (copy to gitignored .env)
+- `SECURITY.md` — Threat model and defended pillars (Gate 1–3)
+- `test_gate1.py` / `test_gate2.py` / `test_gate3.py` — Offline unit tests (45 total)
 - `test_detector.py` — End-to-end detection suite (requires a live API key)
 
 ## Current Status
@@ -43,22 +44,30 @@ Built as part of the LeightonSec SOC Toolkit.
    - /history endpoint with risk_level, date-range, and anomalous_only filters
    - Prompt stored as 100-char prefix + SHA-256 hash, never raw (privacy)
    - One-time legacy JSON importer: `python logger.py import`
+✅ Gate 3 — auth & web hardening:
+   - Dual auth: session login (human) for dashboard + data endpoints, API key
+     (X-API-Key) for POST /analyse — independent domains
+   - Hashed env credentials (werkzeug), constant-time compares, SameSite=Strict
+   - Sanitized 4xx/5xx handlers (no tracebacks) + security headers
+   - CSRF handled by the auth model (no Flask-WTF) — see SECURITY.md §8
 
 ## Next Steps
-- [ ] Authentication layer for web interface (Gate 3)
-- [ ] Docker containerisation (Gate 4)
-- [ ] Split/embedded base64 detection (input-side gap noted in normalise_prompt)
+- [ ] Docker containerisation + cloud/AWS deploy (Gate 4); set FIREWALL_COOKIE_SECURE, HSTS
+- [ ] Split/embedded base64 detection (input-side gap noted in normalise_prompt) (Gate 5)
 - [ ] Secure RAG pipeline (only if/when retrieval is added — see SECURITY.md)
 - [ ] Alert integration with Incident Tracker
 
 ## Tech Stack
 - Python, Flask
 - Anthropic Claude API (claude-haiku-4-5-20251001)
-- python-dotenv, SQLite
+- python-dotenv, SQLite, werkzeug (auth)
 
 ## Security Rules
 - API key in .env — never committed
-- .env, logs/, venv/, .venv/, __pycache__ all gitignored
+- .env, logs/, venv/, .venv/, __pycache__ all gitignored (.env.example IS committed)
+- All credentials (login + API key + secret key) from env only; password stored as a hash
+- Dashboard + data endpoints require login; POST /analyse requires the X-API-Key header
+- Errors are sanitized (no tracebacks); debug stays False; security headers on every response
 - Input validation on all prompts (max 2000 chars)
 - Server bound to 127.0.0.1 only
 - Classifier prompt hardened against injection: untrusted input is wrapped in a

@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Firewall — Login</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #0a0a0a;
+            color: #e0e0e0;
+            font-family: 'Courier New', monospace;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .login-box {
+            width: 100%;
+            max-width: 360px;
+            border: 1px solid #333;
+            padding: 32px;
+        }
+        h1 {
+            font-size: 1.4rem;
+            color: #00ff88;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            text-align: center;
+            margin-bottom: 4px;
+        }
+        .sub {
+            color: #666;
+            font-size: 0.75rem;
+            text-align: center;
+            margin-bottom: 28px;
+        }
+        label { display: block; color: #888; font-size: 0.8rem; margin: 16px 0 6px; }
+        input {
+            width: 100%;
+            background: #111;
+            border: 1px solid #333;
+            color: #e0e0e0;
+            font-family: inherit;
+            padding: 10px;
+        }
+        input:focus { outline: none; border-color: #00ff88; }
+        button {
+            width: 100%;
+            margin-top: 24px;
+            background: #00ff88;
+            color: #0a0a0a;
+            border: none;
+            font-family: inherit;
+            font-weight: bold;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            padding: 12px;
+            cursor: pointer;
+        }
+        button:hover { background: #00cc6e; }
+        .error {
+            color: #ff4444;
+            font-size: 0.8rem;
+            text-align: center;
+            margin-top: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-box">
+        <h1>AI Firewall</h1>
+        <div class="sub">Authentication required</div>
+        <form method="POST" action="/login">
+            <label for="username">Username</label>
+            <input type="text" id="username" name="username" autocomplete="username" autofocus>
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" autocomplete="current-password">
+            <button type="submit">Log In</button>
+        </form>
+        {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    </div>
+</body>
+</html>

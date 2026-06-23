@@ -165,6 +165,35 @@ dashboard and a machine endpoint.
   `Referrer-Policy: no-referrer`, `Content-Security-Policy: default-src 'self'`.
 - **Zero new dependencies** — werkzeug ships with Flask.
 
+## 9. Container & deployment hardening (Gate 4a) ✅
+
+Productionising the app surfaced several "fine on localhost, unsafe in a
+container" issues; each is closed.
+
+- **Production WSGI.** Runs under gunicorn (single worker — keeps the in-memory
+  rate limiter and SQLite coherent), not the Flask dev server.
+- **Non-root container.** Runs as an unprivileged user (uid 10001); multi-stage
+  build ships only the venv + the four app modules + templates.
+- **No secrets in the image.** The Dockerfile copies only what runs (never
+  `COPY . .`); `.dockerignore` excludes `.env`, tests, venv, VCS. Secrets are
+  injected at runtime via `env_file` / the orchestrator's secret store.
+- **Pinned dependencies.** `requirements.txt` is fully version-pinned for
+  reproducible, auditable builds (supply-chain hygiene).
+- **Image vulnerability scanning.** CI builds the image and runs Trivy, failing
+  on fixable CRITICAL/HIGH CVEs (`ignore-unfixed`).
+- **CI as a gate.** GitHub Actions runs the 45 offline tests before the image
+  job, so tests must pass before a build is even attempted.
+- **TLS-aware.** Behind a TLS-terminating proxy (`FIREWALL_TRUST_PROXY=true`),
+  `ProxyFix` trusts one hop of `X-Forwarded-*` so `request.is_secure` is correct;
+  HSTS is then emitted (only over HTTPS) and `FIREWALL_COOKIE_SECURE=true` marks
+  cookies Secure. Host port binds to `127.0.0.1` in compose.
+- **Persistence.** SQLite store mounted as a volume so detections survive
+  container restarts.
+
+**Deferred to Gate 4b (cloud deploy):** target decision (ECS Fargate vs App
+Runner), managed secrets (Secrets Manager/SSM), and — for horizontal scaling —
+Redis-backed rate limiting + a managed datastore.
+
 ---
 
 ## Gate roadmap
@@ -175,7 +204,10 @@ dashboard and a machine endpoint.
   stream (`anomalous_only`). ✅ (see §7)
 - **Gate 3 — auth & error hardening:** dual auth (session + API key), sanitized
   errors, security headers. ✅ (see §8)
-- **Gate 4 — deployment:** Docker, cloud.
+- **Gate 4a — containerization & hardening:** Docker (non-root, pinned deps,
+  no baked secrets), gunicorn, CI + Trivy, TLS-aware. ✅ (see §9)
+- **Gate 4b — cloud deploy:** target (ECS Fargate / App Runner), managed
+  secrets, HTTPS. (pending)
 - **Gate 5 — detection improvements:** split/embedded base64, keyword
   false-positive reduction.
 
@@ -187,3 +219,9 @@ lazily constructed, the DB layer is temp-file isolated per test, and the auth
 tests use Flask's `test_client` with a monkeypatched detector). `test_detector.py`
 is the end-to-end detection suite and requires a live `ANTHROPIC_API_KEY`.
 Run all: `pytest test_gate1.py test_gate2.py test_gate3.py -q` → 45 passing.
+
+Live smoke test (`test_detector.py`, real key, Gate 4a): **18/20** — every clean
+prompt classified CLEAN/LOW, jailbreaks escalated. The 2 misses are
+detection-tuning, not pipeline faults (a leetspeak-obfuscated malware prompt
+scored MEDIUM not HIGH; a borderline "act as a security researcher" scored
+MEDIUM not LOW) — both are Gate 5 (detection improvements).

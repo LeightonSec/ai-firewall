@@ -2,6 +2,7 @@ import os
 from flask import (
     Flask, request, jsonify, render_template, session, redirect, url_for
 )
+from werkzeug.middleware.proxy_fix import ProxyFix
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from detector import analyse_prompt
@@ -25,6 +26,12 @@ app.config.update(
     SESSION_COOKIE_SECURE=os.getenv("FIREWALL_COOKIE_SECURE", "").lower() in ("1", "true", "yes"),
 )
 
+# Behind a TLS-terminating proxy/load balancer (ALB, App Runner), trust ONE hop
+# of X-Forwarded-* so request.is_secure / client IP reflect the real request.
+# Without this, HSTS and per-IP rate limiting would see the proxy, not the client.
+if os.getenv("FIREWALL_TRUST_PROXY", "").lower() in ("1", "true", "yes"):
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+
 limiter = Limiter(
     get_remote_address,
     app=app,
@@ -42,6 +49,10 @@ def set_security_headers(response):
     response.headers["Referrer-Policy"] = "no-referrer"
     # Minimal CSP — the dashboard is self-contained (no external scripts).
     response.headers["Content-Security-Policy"] = "default-src 'self'"
+    # HSTS only over HTTPS (request.is_secure reflects X-Forwarded-Proto when
+    # ProxyFix is enabled). Never sent over plain HTTP, where it's meaningless.
+    if request.is_secure:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
 
 

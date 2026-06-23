@@ -1,0 +1,17 @@
+# Pre-commit secret scanning with GitGuardian ggshield.
+#
+# Activate after cloning:
+#   pip install pre-commit && pre-commit install
+#
+# Requires a GitGuardian account (free): `ggshield auth login`.
+#
+# Rationale: a generic password test fixture slipped past gitleaks and was only
+# caught by GitGuardian on the PR. Running ggshield at commit time catches that
+# class of secret before it leaves the machine. See SECURITY.md.
+repos:
+  - repo: https://github.com/gitguardian/ggshield
+    rev: v1.49.0
+    hooks:
+      - id: ggshield
+        language_version: python3
+        stages: [pre-commit]

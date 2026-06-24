@@ -15,10 +15,11 @@ jobs:
         with:
           python-version: "3.13"
       - run: pip install --no-cache-dir -r requirements.txt pytest
-      # No API key needed — the Anthropic client is lazily constructed and the
-      # auth/DB tests are isolated. (Live test_detector.py is intentionally not
-      # run in CI; it requires a real key and is a manual/deploy-time smoke test.)
-      - run: pytest test_gate1.py test_gate2.py test_gate3.py -q
+      # Glob covers all gate suites (and future ones automatically). It excludes
+      # test_detector.py by design — that live end-to-end suite needs a real key
+      # and is a manual/deploy-time smoke test. No API key needed here: the
+      # Anthropic client is lazily constructed and the auth/DB tests are isolated.
+      - run: pytest test_gate*.py -q
 
   docker:
     name: Build image + Trivy scan

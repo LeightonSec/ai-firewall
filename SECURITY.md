@@ -29,11 +29,12 @@ assumption, and the pipeline fails closed.**
 |---|---|---|
 | Lookalike / unicode obfuscation | NFKD fold to ASCII in `normalise_prompt` | ✅ |
 | Spaced-letter evasion (`i g n o r e`) | Isolated-letter run collapse | ✅ |
-| Leetspeak (`1gn0r3`) | Leet map normalisation | ✅ |
-| Whole-word base64 smuggling | Decode long base64-looking words before matching | ✅ |
+| Leetspeak (`1gn0r3`) | Mixed-token leet map (Gate 5: standalone digits left alone) | ✅ |
+| Whole-word base64 smuggling | Decode base64-looking segments before matching | ✅ |
 | Prompt-injection of the classifier | Per-request random boundary + hostile-data framing (see §2) | ✅ |
 | DoS / cost via huge input | Hard reject at 2000 chars (`app.py`) | ✅ |
-| Split / embedded base64 | — | 📝 known gap, noted in `normalise_prompt` |
+| Split / embedded base64 | Embedded + split decode with strict-UTF-8/meaningfulness guards | ✅ (Gate 5, §10) |
+| **Obfuscation as evasion** | Obfuscation + strong/medium keyword → HIGH (see §10) | ✅ (Gate 5) |
 
 **Locked decision — length clamp:** keep the existing **2000-char hard reject**
 (not truncate). Rejecting is a stronger DoS posture than truncating and
@@ -194,6 +195,35 @@ container" issues; each is closed.
 Runner), managed secrets (Secrets Manager/SSM), and — for horizontal scaling —
 Redis-backed rate limiting + a managed datastore.
 
+## 10. Detection tuning (Gate 5) ✅
+
+Flat `+1`-per-keyword scoring conflated weak framing with real intent and
+discarded the obfuscation signal. Replaced with a model that expresses what the
+signals mean:
+
+- **Weighted tiers.** strong (harmful intent, w=2) / medium (bypass & authority
+  framing, w=1) / weak (ambiguous framing like `act as`, w=0). The most
+  unambiguous markers still short-circuit via HARD_MARKERS (§1/Gate 1).
+- **Obfuscation as a signal — gated.** `normalise_prompt` now reports whether it
+  undid leetspeak / spaced letters / base64. **Obfuscation + a strong/medium
+  keyword → HIGH** (hiding intent is intent). Crucially it is gated on
+  strong/medium: obfuscation + a *weak* keyword, or obfuscation alone, does NOT
+  escalate (`h0w t0 act as a l34d3r` and `h0w t0 b3 a b3tt3r l34d3r` stay LOW).
+- **Weak-signal deference.** A lone weak keyword with an explicit CLEAN verdict
+  resolves to LOW — cutting false positives (`act as a security researcher`)
+  without lowering the guard: strong/medium, obfuscation+threat, multiple
+  signals, or any non-CLEAN verdict still escalate.
+- **Embedded + split base64.** Decodes base64 anywhere in the text, and joins
+  space-split fragments (per-token `_looks_base64ish` filter requiring a
+  digit/`+`/`/`/`=`, so plain words — even Title-Case — are excluded), behind a
+  strict-UTF-8 + letters/spaces-ratio guard so hashes/IDs don't false-positive.
+- **Mixed-token leetspeak.** Leet substitution applies only to tokens mixing
+  letters and leet chars (`m4ke`), so `I have 5 cats` is left intact (the old
+  global map turned it into `s cats`).
+
+Result: the two live smoke-test misses are fixed (leetspeak-malware → HIGH;
+borderline researcher → LOW) with **no regressions** — 20/20 live.
+
 ---
 
 ## Gate roadmap
@@ -208,20 +238,20 @@ Redis-backed rate limiting + a managed datastore.
   no baked secrets), gunicorn, CI + Trivy, TLS-aware. ✅ (see §9)
 - **Gate 4b — cloud deploy:** target (ECS Fargate / App Runner), managed
   secrets, HTTPS. (pending)
-- **Gate 5 — detection improvements:** split/embedded base64, keyword
-  false-positive reduction.
+- **Gate 5 — detection tuning:** weighted tiers, obfuscation-as-signal,
+  embedded/split base64, weak-signal FP reduction. ✅ (see §10)
 
 ## Testing
 
-`test_gate1.py` (hardening), `test_gate2.py` (persistence), and `test_gate3.py`
-(auth + error hardening) run **offline** — no API key needed (the client is
-lazily constructed, the DB layer is temp-file isolated per test, and the auth
-tests use Flask's `test_client` with a monkeypatched detector). `test_detector.py`
-is the end-to-end detection suite and requires a live `ANTHROPIC_API_KEY`.
-Run all: `pytest test_gate1.py test_gate2.py test_gate3.py -q` → 45 passing.
+`test_gate1.py` (hardening), `test_gate2.py` (persistence), `test_gate3.py`
+(auth + error hardening), and `test_gate5.py` (detection tuning) run **offline**
+— no API key needed (the client is lazily constructed, the DB layer is temp-file
+isolated per test, and the auth tests use Flask's `test_client` with a
+monkeypatched detector). `test_detector.py` is the end-to-end detection suite
+and requires a live `ANTHROPIC_API_KEY`.
+Run all: `pytest test_gate1.py test_gate2.py test_gate3.py test_gate5.py -q` → **70 passing**.
 
-Live smoke test (`test_detector.py`, real key, Gate 4a): **18/20** — every clean
-prompt classified CLEAN/LOW, jailbreaks escalated. The 2 misses are
-detection-tuning, not pipeline faults (a leetspeak-obfuscated malware prompt
-scored MEDIUM not HIGH; a borderline "act as a security researcher" scored
-MEDIUM not LOW) — both are Gate 5 (detection improvements).
+Live smoke test (`test_detector.py`, real key): **20/20** after Gate 5 (was
+18/20). The leetspeak-obfuscated malware prompt now escalates to HIGH
+(obfuscation + strong keyword) and the borderline "act as a security researcher"
+resolves to LOW (weak-signal deference) — no regressions on the other 18.

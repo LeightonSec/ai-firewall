@@ -18,85 +18,182 @@ def get_client() -> Anthropic:
         _client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
     return _client
 
-def normalise_prompt(prompt: str) -> str:
-    """Normalise prompt to catch obfuscation attempts"""
-    # 1. Unicode normalisation - maps lookalike chars to ASCII
-    normalised = unicodedata.normalize('NFKD', prompt)
-    normalised = normalised.encode('ascii', 'ignore').decode('ascii')
+# --- Normalisation + obfuscation detection ---------------------------------
+# Obfuscation is itself a signal: leetspeak / spaced-out letters / base64 are
+# attempts to slip a keyword past the scanner. We de-obfuscate so matching still
+# works AND record that it happened, so calculate_risk can treat "obfuscation +
+# a real (strong/medium) keyword" as a strong escalation. Obfuscation paired
+# with only weak framing, or with no keyword, is NOT escalated (Gate 5 design).
 
-    # 2. Collapse spaced-out letters: "i g n o r e" -> "ignore"
-    # Only collapses runs of single isolated letters — leaves multi-letter words like "how to hack" intact
-    normalised = re.sub(r'\b[a-zA-Z](\s[a-zA-Z])+\b', lambda m: m.group(0).replace(' ', ''), normalised)
-
-    # 3. Leetspeak normalisation
-    # '\/' -> 'v' is a two-char pattern; handle via regex before the char-by-char map
-    normalised = re.sub(r'\\/', 'v', normalised)
-    leet_map = {
-        '0': 'o', '1': 'i', '3': 'e', '4': 'a', '5': 's',
-        '@': 'a', '$': 's', '7': 't', '|': 'l', '!': 'i',
-        '+': 't', '(': 'c'
-    }
-    normalised = ''.join(leet_map.get(c, c) for c in normalised)
-
-    # 4. Try to detect and decode base64 chunks
-    # NOTE: only scans whole whitespace-delimited words; split/embedded base64 is a v2 problem
-    try:
-        words = normalised.split()
-        decoded_words = []
-        for word in words:
-            try:
-                if len(word) > 20:
-                    decoded = base64.b64decode(word + '==').decode('utf-8', errors='ignore')
-                    if decoded.isprintable():
-                        decoded_words.append(decoded)
-                        continue
-            except Exception:
-                pass
-            decoded_words.append(word)
-        normalised = ' '.join(decoded_words)
-    except Exception:
-        pass
-
-    return normalised.lower()  # intentional — ensures downstream pattern matching is case-insensitive
-
-# Jailbreak pattern categories
-PATTERNS = {
-    "persona_hijack": [
-        r"\bdan\b", r"do anything now", r"act as", r"pretend you",
-        r"you are now", r"roleplay as", r"ignore previous instructions",
-        r"forget your instructions", r"you have no restrictions"
-    ],
-    "restriction_bypass": [
-        r"no restrictions", r"no rules", r"without limitations",
-        r"override", r"bypass", r"ignore your training",
-        r"disable safety", r"jailbreak"
-    ],
-    "authority_claim": [
-        r"i am a developer", r"admin override", r"adminoverride", r"system prompt",
-        r"as your creator", r"maintenance mode", r"developer mode"
-    ],
-    "harmful_intent": [
-        r"how to hack", r"how to make a bomb", r"synthesize drugs",
-        r"exploit vulnerability", r"malware", r"ransomware"
-    ]
+LEET_MAP = {
+    '0': 'o', '1': 'i', '3': 'e', '4': 'a', '5': 's',
+    '@': 'a', '$': 's', '7': 't', '|': 'l', '!': 'i',
+    '+': 't', '(': 'c',
 }
 
+_SPACED_LETTERS_RE = re.compile(r'\b[a-zA-Z](\s[a-zA-Z])+\b')
+_B64_RE = re.compile(r'[A-Za-z0-9+/]{16,}={0,2}')
+_TOKEN_RE = re.compile(r'\S+')
+_B64_CHARSET_RE = re.compile(r'[A-Za-z0-9+/=]+')
+
+
+def _try_b64_decode(segment: str):
+    """Decode a base64-looking segment only if it yields *meaningful* text.
+
+    Guards against false positives on hashes/IDs/random tokens: requires a clean
+    strict-UTF-8 decode, printable output, and a high letters/spaces ratio.
+    Returns the decoded text, or None.
+    """
+    if len(segment.rstrip('=')) < 16:
+        return None
+    try:
+        raw = base64.b64decode(segment + '=' * ((-len(segment)) % 4), validate=False)
+        decoded = raw.decode('utf-8')
+    except Exception:
+        return None
+    if not decoded.isprintable() or len(decoded) < 3:
+        return None
+    meaningful = sum(c.isalpha() or c.isspace() for c in decoded) / len(decoded)
+    return decoded if meaningful >= 0.6 else None
+
+
+def _looks_base64ish(token: str) -> bool:
+    """True if a token looks like a base64 fragment rather than a plain word.
+    Requires the base64 charset AND a digit or a base64-special char (+ / =) —
+    a signal normal words (even Title-Case) lack. Mixed case alone is NOT used:
+    'Hello' is mixed-case but obviously not base64."""
+    if len(token) < 4 or not _B64_CHARSET_RE.fullmatch(token):
+        return False
+    return any(c.isdigit() or c in '+/=' for c in token)
+
+
+def _decode_base64(text: str):
+    """Decode embedded base64 (anywhere in the text) and best-effort split
+    base64 (chunks broken across spaces). Returns (text, obfuscated)."""
+    obfuscated = False
+
+    def _embed(m):
+        nonlocal obfuscated
+        decoded = _try_b64_decode(m.group())
+        if decoded is not None:
+            obfuscated = True
+            return ' ' + decoded + ' '
+        return m.group()
+    text = _B64_RE.sub(_embed, text)
+
+    # Split: an attacker may break a base64 blob across spaces to dodge the
+    # whole-segment match above. Join tokens that individually LOOK encoded
+    # (per-token filter, so plain words like "have"/"cats" are excluded — a
+    # capital "I" in a normal sentence must not trigger this), and decode only
+    # if the join is long enough to be a real payload (>= 16 chars).
+    joined = ''.join(t for t in text.split(' ') if _looks_base64ish(t))
+    if len(joined) >= 16:
+        decoded = _try_b64_decode(joined)
+        if decoded is not None:
+            obfuscated = True
+            text = text + ' ' + decoded
+
+    return text, obfuscated
+
+
+def _deleet(text: str):
+    """Map leetspeak to letters, but ONLY within tokens that mix letters and
+    leet chars (e.g. 'm4ke', 'l34d3r') — so standalone '5' or '2023' are left
+    alone, avoiding the old 'I have 5 cats' -> 's cats' overreach.
+    Returns (text, obfuscated)."""
+    obfuscated = False
+    # '\/' -> 'v' first (a two-char leet form the single-char map can't catch).
+    if '\\/' in text:
+        obfuscated = True
+        text = text.replace('\\/', 'v')
+
+    def _fix(m):
+        nonlocal obfuscated
+        tok = m.group()
+        if any(c.isalpha() for c in tok) and any(c in LEET_MAP for c in tok):
+            obfuscated = True
+            return ''.join(LEET_MAP.get(c, c) for c in tok)
+        return tok
+
+    return _TOKEN_RE.sub(_fix, text), obfuscated
+
+
+def _normalise(prompt: str):
+    """Normalise a prompt for keyword matching and report whether any
+    obfuscation (base64 / spaced letters / leetspeak) was undone.
+    Returns (normalised_text, obfuscated)."""
+    obfuscated = False
+
+    # 1. Unicode fold to ASCII (lookalike characters).
+    text = unicodedata.normalize('NFKD', prompt).encode('ascii', 'ignore').decode('ascii')
+
+    # 2. Base64 BEFORE leet (leet would corrupt base64's 0/1/3/4/5/7 chars).
+    text, b64_obf = _decode_base64(text)
+    obfuscated = obfuscated or b64_obf
+
+    # 3. Collapse spaced-out letters: "i g n o r e" -> "ignore".
+    if _SPACED_LETTERS_RE.search(text):
+        obfuscated = True
+        text = _SPACED_LETTERS_RE.sub(lambda m: m.group(0).replace(' ', ''), text)
+
+    # 4. Leetspeak (mixed-token only).
+    text, leet_obf = _deleet(text)
+    obfuscated = obfuscated or leet_obf
+
+    return text.lower(), obfuscated
+
+
+def normalise_prompt(prompt: str) -> str:
+    """Backward-compatible wrapper returning just the normalised text."""
+    return _normalise(prompt)[0]
+
+# --- Keyword tiers ----------------------------------------------------------
+# Weighted tiers replace flat per-hit scoring:
+#   strong = clear malicious intent (heavy weight)
+#   medium = attack structure (bypass / authority framing)
+#   weak   = ambiguous framing common in legitimate prompts ("act as a security
+#            researcher"). Weak hits carry NO score and defer to the API verdict.
+# (The most unambiguous markers are handled earlier by HARD_MARKERS, which
+# short-circuit to JAILBREAK before scoring.)
+TIER_PATTERNS = {
+    "strong": [
+        r"how to hack", r"how to make a bomb", r"synthesize drugs",
+        r"exploit vulnerability", r"malware", r"ransomware",
+    ],
+    "medium": [
+        r"no restrictions", r"no rules", r"without limitations",
+        r"i am a developer", r"admin override", r"adminoverride",
+        r"as your creator", r"maintenance mode", r"developer mode",
+        r"system prompt",
+    ],
+    "weak": [
+        r"\bdan\b", r"act as", r"pretend you", r"you are now",
+        r"roleplay as", r"override", r"bypass",
+    ],
+}
+TIER_WEIGHT = {"strong": 2, "medium": 1, "weak": 0}
+
 def keyword_scan(prompt: str) -> dict:
-    """Fast pattern matching scan"""
-    prompt_lower = normalise_prompt(prompt)
-    matched = {}
+    """Weighted, tier-aware keyword scan. Also reports whether the prompt was
+    de-obfuscated, so calculate_risk can apply the obfuscation amplifier."""
+    text, obfuscated = _normalise(prompt)
+    matches = {}
     score = 0
+    tiers_hit = set()
 
-    for category, patterns in PATTERNS.items():
-        hits = []
-        for pattern in patterns:
-            if re.search(pattern, prompt_lower):
-                hits.append(pattern)
-                score += 1
+    for tier, patterns in TIER_PATTERNS.items():
+        hits = [p for p in patterns if re.search(p, text)]
         if hits:
-            matched[category] = hits
+            matches[tier] = hits
+            tiers_hit.add(tier)
+            score += TIER_WEIGHT[tier] * len(hits)
 
-    return {"matches": matched, "score": score}
+    return {
+        "matches": matches,
+        "score": score,
+        "tiers_hit": tiers_hit,
+        "obfuscated": obfuscated,
+    }
 
 # Output-validation vocabulary and limits.
 VALID_VERDICTS = {"CLEAN", "SUSPICIOUS", "JAILBREAK"}
@@ -192,16 +289,10 @@ def api_scan(prompt: str) -> dict:
                 "REASON": "API scan unavailable.", "degraded": True}
     return validate_api_result(text)
 
-# Scoring thresholds — rationale:
-# HIGH: Any single JAILBREAK verdict from Claude API is sufficient to block.
-#       3+ keyword hits indicates multi-vector attack (persona + bypass + authority etc.)
-#       Single-vector attacks score MEDIUM to reduce false positives on legitimate prompts.
-# MEDIUM: 1-2 keyword hits = suspicious framing but not conclusive.
-#         SUSPICIOUS from API = semantic concern without clear jailbreak structure.
-# LOW: No signals from either layer.
-
-SCORE_THRESHOLD_HIGH = 3    # keyword hits required for HIGH without API confirmation
-SCORE_THRESHOLD_MEDIUM = 1  # keyword hits required for MEDIUM
+# Weighted-score threshold for HIGH without API confirmation (strong=2,
+# medium=1, weak=0). Requires heavy mass — e.g. two strong, or strong+medium.
+# A single strong keyword alone is MEDIUM, not HIGH (e.g. "explain ransomware").
+SCORE_THRESHOLD_HIGH = 3
 
 # Unambiguous attack markers — phrases with no plausible legitimate use in a
 # user prompt. A hit here is classified locally (no API spend, no opportunity for
@@ -224,25 +315,43 @@ def has_hard_marker(prompt: str) -> bool:
     return any(re.search(m, normalised) for m in HARD_MARKERS)
 
 def calculate_risk(keyword_result: dict, api_result: dict) -> str:
-    """Combine keyword and API results into final risk level.
+    """Combine the weighted keyword scan and the API verdict into a risk level.
 
-    Thresholds are conservative by design — false negatives (missed attacks)
-    are more costly than false positives (blocked legitimate prompts) in a
-    security context.
+    Escalates to HIGH on: an explicit JAILBREAK verdict; OR obfuscation paired
+    with a real (strong/medium) keyword — hiding intent IS intent; OR heavy
+    keyword mass when the API can't confirm.
 
-    Fails CLOSED: an explicit CLEAN verdict is the ONLY way the API layer can
-    resolve to LOW. A missing/invalid/unavailable verdict (``VERDICT is None``)
-    is treated as suspicious — this closes the previous fail-open default where
-    ``.get("VERDICT", "CLEAN")`` let a malformed or steered response pass as CLEAN.
+    Fails CLOSED: a missing/invalid/unavailable verdict (``VERDICT is None``) is
+    treated as suspicious, never CLEAN.
+
+    Weak-signal deference: a lone weak keyword ("act as") with an explicit CLEAN
+    verdict resolves to LOW — it is genuinely low signal and the API already saw
+    it. The guard is NOT lowered: strong/medium hits, obfuscation+threat,
+    multiple signals, or any non-CLEAN verdict still escalate.
     """
-    score = keyword_result["score"]
+    score = keyword_result.get("score", 0)
+    tiers_hit = keyword_result.get("tiers_hit", set())
+    obfuscated = keyword_result.get("obfuscated", False)
     verdict = api_result.get("VERDICT")
 
-    if verdict == "JAILBREAK" or score >= SCORE_THRESHOLD_HIGH:
+    has_real_keyword = bool(tiers_hit & {"strong", "medium"})
+
+    # --- HIGH ---
+    if verdict == "JAILBREAK":
         return "HIGH"
-    if verdict == "SUSPICIOUS" or verdict is None or score >= SCORE_THRESHOLD_MEDIUM:
+    if obfuscated and has_real_keyword:
+        return "HIGH"
+    if score >= SCORE_THRESHOLD_HIGH:
+        return "HIGH"
+
+    # --- MEDIUM ---
+    if verdict == "SUSPICIOUS" or verdict is None:   # fail closed
         return "MEDIUM"
-    # verdict == "CLEAN" with no keyword signal.
+    if has_real_keyword:                             # a real keyword stands alone
+        return "MEDIUM"
+
+    # --- LOW ---
+    # Only weak keywords (or none) remain, with an explicit CLEAN verdict.
     return "LOW"
 
 def analyse_prompt(prompt: str) -> dict:
@@ -274,4 +383,6 @@ def analyse_prompt(prompt: str) -> dict:
         "api_anomalous": api_result.get("anomalous", False),
         "api_degraded": api_result.get("degraded", False),
         "api_short_circuited": api_result.get("short_circuited", False),
+        "obfuscation_detected": keyword_result.get("obfuscated", False),
+        "keyword_tiers": sorted(keyword_result.get("tiers_hit", set())),
     }

@@ -23,12 +23,12 @@ Built as part of the LeightonSec SOC Toolkit.
 - `Dockerfile` / `.dockerignore` / `docker-compose.yml` — Containerization (non-root, gunicorn)
 - `.github/workflows/ci.yml` — CI: offline tests → image build → Trivy scan
 - `SECURITY.md` — Threat model and defended pillars (Gate 1–4a)
-- `test_gate1.py` / `test_gate2.py` / `test_gate3.py` — Offline unit tests (45 total)
+- `test_gate1.py` / `test_gate2.py` / `test_gate3.py` / `test_gate5.py` — Offline unit tests (70 total)
 - `test_detector.py` — End-to-end detection suite (requires a live API key)
 
 ## Current Status
 ✅ Complete and live — LeightonSec/ai-firewall
-✅ Keyword detection across 4 attack categories
+✅ Weighted-tier keyword detection (strong/medium/weak) + hard-marker short-circuit
 ✅ Claude API semantic classification
 ✅ Risk scoring LOW/MEDIUM/HIGH
 ✅ Web dashboard with live stats
@@ -56,13 +56,18 @@ Built as part of the LeightonSec SOC Toolkit.
    - Dockerfile (multi-stage, non-root uid 10001, explicit COPYs — no baked secrets)
    - gunicorn (single worker); ProxyFix + HSTS behind TLS; pinned requirements.txt
    - docker-compose (localhost-bound, volume for SQLite, env_file secrets)
-   - GitHub Actions CI: 45 offline tests → image build → Trivy (fail on fixable CRIT/HIGH)
-   - Live test_detector.py smoke test run with real key: 18/20 (2 misses are Gate 5 tuning)
+   - GitHub Actions CI: offline tests → image build → Trivy (fail on fixable CRIT/HIGH)
+✅ Gate 5 — detection tuning:
+   - Weighted tiers (strong=2/medium=1/weak=0) replace flat +1 scoring
+   - Obfuscation-as-signal: leet/spacing/base64 tracked; obfuscation + strong/medium → HIGH
+     (gated — obfuscation + weak or alone does NOT escalate)
+   - Weak-signal deference: lone weak keyword + CLEAN verdict → LOW (FP reduction)
+   - Embedded + split base64 with strict-UTF-8/meaningfulness guards; mixed-token leet only
+   - Live smoke test now 20/20 (was 18/20); 70 offline tests
 
 ## Next Steps
 - [ ] Gate 4b — cloud deploy: target decision (ECS Fargate vs App Runner), managed
       secrets (Secrets Manager/SSM), HTTPS; set FIREWALL_TRUST_PROXY + FIREWALL_COOKIE_SECURE
-- [ ] Gate 5 — detection: split/embedded base64; leetspeak-malware → HIGH; keyword FP reduction
 - [ ] Secure RAG pipeline (only if/when retrieval is added — see SECURITY.md)
 - [ ] Alert integration with Incident Tracker
 
@@ -87,7 +92,8 @@ Built as part of the LeightonSec SOC Toolkit.
 
 ## Conventions
 - Detection logic stays in detector.py
-- New attack categories added to PATTERNS dict in detector.py
+- New keywords go in TIER_PATTERNS (strong/medium/weak) in detector.py; the most
+  unambiguous markers go in HARD_MARKERS (short-circuit to HIGH)
 - Logs always written via logger.py
 - Risk levels always strings: "LOW", "MEDIUM", "HIGH"
 - Never expose the API key in logs or responses

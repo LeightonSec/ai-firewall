@@ -1,0 +1,11 @@
+# Direct runtime dependencies. Compile to the hash-pinned lockfile with:
+#   uv pip compile requirements.in --python-version 3.10 --universal \
+#       --generate-hashes -o requirements.txt
+# Versions are pinned here to keep the locked set stable (and Trivy-reviewed);
+# bump deliberately, then recompile.
+flask==3.1.3
+werkzeug==3.1.8          # direct: auth.py uses werkzeug.security for password hashing
+flask-limiter==4.1.1
+anthropic==0.111.0
+python-dotenv==1.2.2
+gunicorn==26.0.0

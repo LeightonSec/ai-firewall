@@ -14,12 +14,27 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - run: pip install --no-cache-dir -r requirements.txt pytest
+      # requirements-dev.txt is the hash-pinned lockfile (runtime + pytest);
+      # --require-hashes fails the build if any package's hash is unexpected.
+      - run: pip install --no-cache-dir --require-hashes -r requirements-dev.txt
       # Glob covers all gate suites (and future ones automatically). It excludes
       # test_detector.py by design — that live end-to-end suite needs a real key
       # and is a manual/deploy-time smoke test. No API key needed here: the
       # Anthropic client is lazily constructed and the auth/DB tests are isolated.
       - run: pytest test_gate*.py -q
+
+  gate:
+    name: Static security gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install security-gate (SHA-pinned)
+        run: pip install "git+https://github.com/LeightonSec/security-gate@531d618231269b490fd2800484aee7e0feebca38"
+      # Honours accepted-findings.toml; fails on any un-waived CRITICAL/HIGH.
+      - run: security-gate scan . --exit-code
 
   docker:
     name: Build image + Trivy scan

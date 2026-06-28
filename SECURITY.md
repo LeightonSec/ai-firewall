@@ -178,12 +178,16 @@ container" issues; each is closed.
 - **No secrets in the image.** The Dockerfile copies only what runs (never
   `COPY . .`); `.dockerignore` excludes `.env`, tests, venv, VCS. Secrets are
   injected at runtime via `env_file` / the orchestrator's secret store.
-- **Pinned dependencies.** `requirements.txt` is fully version-pinned for
-  reproducible, auditable builds (supply-chain hygiene).
+- **Hash-pinned dependencies.** `requirements.txt` / `requirements-dev.txt` are
+  hash-pinned lockfiles compiled from `requirements*.in` (`uv pip compile
+  --generate-hashes`); installs (Dockerfile + CI) use `--require-hashes`, so a
+  tampered or substituted package fails the build — supply-chain *integrity*, not
+  just version reproducibility.
 - **Image vulnerability scanning.** CI builds the image and runs Trivy, failing
   on fixable CRITICAL/HIGH CVEs (`ignore-unfixed`).
-- **CI as a gate.** GitHub Actions runs the 45 offline tests before the image
-  job, so tests must pass before a build is even attempted.
+- **CI as a gate.** GitHub Actions runs the 76 offline tests and a SHA-pinned
+  `security-gate` static scan (honouring `accepted-findings.toml`) before the
+  image job, so tests and the gate must pass before a build is attempted.
 - **TLS-aware.** Behind a TLS-terminating proxy (`FIREWALL_TRUST_PROXY=true`),
   `ProxyFix` trusts one hop of `X-Forwarded-*` so `request.is_secure` is correct;
   HSTS is then emitted (only over HTTPS) and `FIREWALL_COOKIE_SECURE=true` marks
@@ -257,7 +261,7 @@ vocabulary is consumed; the `REASON` string is display-only).
   stream (`anomalous_only`). ✅ (see §7)
 - **Gate 3 — auth & error hardening:** dual auth (session + API key), sanitized
   errors, security headers. ✅ (see §8)
-- **Gate 4a — containerization & hardening:** Docker (non-root, pinned deps,
+- **Gate 4a — containerization & hardening:** Docker (non-root, hash-pinned deps,
   no baked secrets), gunicorn, CI + Trivy, TLS-aware. ✅ (see §9)
 - **Gate 4b — cloud deploy:** target (ECS Fargate / App Runner), managed
   secrets, HTTPS. (pending)

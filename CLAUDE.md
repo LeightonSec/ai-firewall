@@ -21,7 +21,9 @@ Built as part of the LeightonSec SOC Toolkit.
 - `logs/detections.db` — SQLite detection store (gitignored)
 - `.env.example` — Template for required env vars (copy to gitignored .env)
 - `Dockerfile` / `.dockerignore` / `docker-compose.yml` — Containerization (non-root, gunicorn)
-- `.github/workflows/ci.yml` — CI: offline tests → image build → Trivy scan
+- `.github/workflows/ci.yml` — CI: offline tests → security-gate → image build → Trivy scan
+- `requirements*.in` / `requirements*.txt` — hash-pinned lockfiles (runtime + dev)
+- `accepted-findings.toml` — security-gate waivers (FP/by-design; the real unpinned-deps finding was fixed, not waived)
 - `SECURITY.md` — Threat model and defended pillars (Gate 1–4a)
 - `test_gate1.py` / `test_gate2.py` / `test_gate3.py` / `test_gate5.py` — Offline unit tests (70 total)
 - `test_detector.py` — End-to-end detection suite (requires a live API key)
@@ -54,9 +56,9 @@ Built as part of the LeightonSec SOC Toolkit.
    - CSRF handled by the auth model (no Flask-WTF) — see SECURITY.md §8
 ✅ Gate 4a — containerization & hardening:
    - Dockerfile (multi-stage, non-root uid 10001, explicit COPYs — no baked secrets)
-   - gunicorn (single worker); ProxyFix + HSTS behind TLS; pinned requirements.txt
+   - gunicorn (single worker); ProxyFix + HSTS behind TLS; hash-pinned requirements.txt (--require-hashes)
    - docker-compose (localhost-bound, volume for SQLite, env_file secrets)
-   - GitHub Actions CI: offline tests → image build → Trivy (fail on fixable CRIT/HIGH)
+   - GitHub Actions CI: offline tests → security-gate (SHA-pinned) → image build → Trivy (fail on fixable CRIT/HIGH)
 ✅ Gate 5 — detection tuning:
    - Weighted tiers (strong=2/medium=1/weak=0) replace flat +1 scoring
    - Obfuscation-as-signal: leet/spacing/base64 tracked; obfuscation + strong/medium → HIGH
@@ -77,7 +79,8 @@ Built as part of the LeightonSec SOC Toolkit.
 ## Tech Stack
 - Python, Flask, gunicorn
 - Anthropic Claude API (claude-haiku-4-5-20251001)
-- python-dotenv, SQLite, werkzeug (auth); Docker + GitHub Actions + Trivy (CI/deploy)
+- python-dotenv, SQLite, werkzeug (auth); Docker + GitHub Actions + Trivy + security-gate (CI/deploy)
+- uv (lockfile compile); pytest (dev, hash-pinned in requirements-dev.txt)
 
 ## Security Rules
 - API key in .env — never committed

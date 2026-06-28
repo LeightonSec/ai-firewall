@@ -1,0 +1,8 @@
+# Dev/test dependencies, layered on the runtime lockfile so versions stay
+# consistent. Compile with:
+#   uv pip compile requirements-dev.in --python-version 3.10 --universal \
+#       --generate-hashes -o requirements-dev.txt
+# The resulting requirements-dev.txt contains runtime + test deps (all hashed),
+# so CI installs only it; the Dockerfile installs requirements.txt (runtime only).
+-r requirements.txt
+pytest

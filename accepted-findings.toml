@@ -1,0 +1,118 @@
+# Accepted findings for ai-firewall.
+# Each entry removes a finding from gate consideration — severity stays visible
+# in the report. Required fields: scanner, file, match (substring), rationale,
+# reviewer, date.
+#
+# The one genuine finding the gate surfaced — unpinned_deps — was FIXED, not
+# waived (requirements.txt / requirements-dev.txt are now hash-pinned lockfiles
+# compiled from requirements*.in). Everything below is a false positive or a
+# documented by-design decision.
+#
+# Two scanner blind spots account for most of these:
+#   1. missing_validation is line-scoped — it flags a Flask request.* read but
+#      cannot see the validation on the following line(s).
+#   2. web_app does not recognise this app's custom auth decorators
+#      (api_key_required), and flags the login route which is unauthenticated by
+#      necessity.
+
+# --- missing_validation: input IS validated, just not on the flagged line -----
+
+[[accepted]]
+scanner   = "missing_validation"
+file      = "app.py"
+match     = 'username = (request.form.get("username")'
+rationale = "Login username goes into verify_login(), a constant-time hash compare against env-configured credentials (auth.py). It is an auth credential, not structured data needing schema validation."
+reviewer  = "leighton"
+date      = "2026-06-28"
+
+[[accepted]]
+scanner   = "missing_validation"
+file      = "app.py"
+match     = 'password = request.form.get("password")'
+rationale = "Login password goes into verify_login()'s constant-time werkzeug hash check. Credential, not schema data."
+reviewer  = "leighton"
+date      = "2026-06-28"
+
+[[accepted]]
+scanner   = "missing_validation"
+file      = "app.py"
+match     = "data = request.get_json(silent=True)"
+rationale = "Validated on the next lines: rejects non-dict / missing 'prompt', enforces isinstance(prompt, str), strip(), and len <= 2000 before use. The line-scoped scanner cannot see the adjacent validation."
+reviewer  = "leighton"
+date      = "2026-06-28"
+
+[[accepted]]
+scanner   = "missing_validation"
+file      = "app.py"
+match     = 'risk_level = request.args.get("risk_level")'
+rationale = "Validated immediately after: upper-cased and rejected with 400 unless in VALID_RISK_LEVELS."
+reviewer  = "leighton"
+date      = "2026-06-28"
+
+[[accepted]]
+scanner   = "missing_validation"
+file      = "app.py"
+match     = 'request.args.get("anomalous_only"'
+rationale = "Coerced to a bool on the same line via a membership test (value in ('1','true','yes')) — output type is constrained, no further validation possible or needed."
+reviewer  = "leighton"
+date      = "2026-06-28"
+
+[[accepted]]
+scanner   = "missing_validation"
+file      = "app.py"
+match     = 'int(request.args.get("limit", 100))'
+rationale = "Wrapped in try/except ValueError -> 400, then clamped to max(1, min(limit, MAX_HISTORY_LIMIT)). Fully validated."
+reviewer  = "leighton"
+date      = "2026-06-28"
+
+[[accepted]]
+scanner   = "missing_validation"
+file      = "app.py"
+match     = 'since=request.args.get("since")'
+rationale = "Passed to logger.query_history as a bound '?' parameter in parameterised SQL (timestamp >= ?). No SQLi; a malformed timestamp simply matches nothing."
+reviewer  = "leighton"
+date      = "2026-06-28"
+
+[[accepted]]
+scanner   = "missing_validation"
+file      = "app.py"
+match     = 'until=request.args.get("until")'
+rationale = "Passed to logger.query_history as a bound '?' parameter in parameterised SQL (timestamp <= ?). No SQLi; malformed input matches nothing."
+reviewer  = "leighton"
+date      = "2026-06-28"
+
+[[accepted]]
+scanner   = "missing_validation"
+file      = "logger.py"
+match     = 'json.loads(d["keyword_matches"])'
+rationale = "Not external input: keyword_matches is written by this app via json.dumps() of keyword_scan()'s matches (a dict of fixed TIER_PATTERNS), then read back from the app's own SQLite store. App-internal round-trip, not attacker-controlled."
+reviewer  = "leighton"
+date      = "2026-06-28"
+
+# --- outbound_calls: the API call is the product -----------------------------
+
+[[accepted]]
+scanner   = "outbound_calls"
+file      = "detector.py"
+match     = "Anthropic(api_key=os.getenv"
+rationale = "By design. ai-firewall is an LLM-backed classifier; the Claude API call is its core function, not optional offline inference. The prompt sent is wrapped in a per-request random boundary and framed as untrusted data (see SECURITY.md sections 2-3); no secrets or PII are sent (the prompt under analysis only)."
+reviewer  = "leighton"
+date      = "2026-06-28"
+
+# --- web_app: custom auth decorator + unauth-by-necessity login --------------
+
+[[accepted]]
+scanner   = "web_app"
+file      = "app.py"
+match     = '@app.route("/analyse", methods=["POST"])'
+rationale = "False positive: /analyse is guarded by @api_key_required (auth.py), a custom decorator the scanner does not recognise. The X-API-Key requirement is covered by test_gate3.py (rejects missing/wrong key with 401)."
+reviewer  = "leighton"
+date      = "2026-06-28"
+
+[[accepted]]
+scanner   = "web_app"
+file      = "app.py"
+match     = '@app.route("/login", methods=["GET", "POST"])'
+rationale = "By design: /login is the authentication entry point and is necessarily unauthenticated. It is rate-limited (10/min) and returns 401 on bad credentials."
+reviewer  = "leighton"
+date      = "2026-06-28"

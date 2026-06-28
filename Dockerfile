@@ -6,7 +6,9 @@ WORKDIR /app
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# --require-hashes: every package (incl. transitives) must match a pinned hash in
+# the lockfile or the build fails — supply-chain integrity enforced at install.
+RUN pip install --no-cache-dir --require-hashes -r requirements.txt
 
 # --- Stage 2: minimal runtime ---
 FROM python:3.13-slim AS runtime

@@ -165,6 +165,17 @@ TIER_PATTERNS = {
         r"i am a developer", r"admin override", r"adminoverride",
         r"as your creator", r"maintenance mode", r"developer mode",
         r"system prompt",
+        # Role-marker / chat-template injection — an attacker forging a fake
+        # conversation turn to override the classifier. This is the keyword-free
+        # injection class the LLM layer is otherwise solely exposed to; matching
+        # it here gives the keyword layer partial coverage of that residual.
+        # Role prefixes are anchored to line start so legitimate mid-sentence use
+        # ("the operating system: linux") does not false-positive.
+        r"(?:^|\n)\s*system\s*:", r"(?:^|\n)\s*assistant\s*:",
+        # ChatML markers: normalisation de-leets '|' -> 'l', so '<|im_start|>'
+        # arrives as '<lim_startl>' — the 'im_start'/'im_end' core survives and is
+        # unique to chat-template injection, so match that.
+        r"im_start", r"im_end",
     ],
     "weak": [
         r"\bdan\b", r"act as", r"pretend you", r"you are now",

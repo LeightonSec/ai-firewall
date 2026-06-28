@@ -95,6 +95,12 @@ def test_analyse_accepts_valid_api_key(client):
     assert r.status_code == 200
     assert r.get_json()["risk_level"] == "LOW"
 
+def test_analyse_rejects_non_string_prompt(client):
+    # {"prompt": 123} must yield a clean 400, not a 500 from .strip() on an int.
+    r = client.post("/analyse", json={"prompt": 123}, headers={"X-API-Key": API_KEY})
+    assert r.status_code == 400
+    assert r.get_json()["error"] == "Prompt must be a string"
+
 def test_analyse_does_not_use_session(client):
     # A logged-in human still cannot POST /analyse without the API key —
     # the two auth domains are independent.

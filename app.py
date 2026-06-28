@@ -129,7 +129,12 @@ def analyse():
     if not data or "prompt" not in data:
         return _error(400, "No prompt provided")
 
-    prompt = data["prompt"].strip()
+    prompt = data["prompt"]
+    if not isinstance(prompt, str):
+        # A non-string prompt (e.g. {"prompt": 123}) must not reach .strip() and
+        # 500 — return a clean 400 instead.
+        return _error(400, "Prompt must be a string")
+    prompt = prompt.strip()
 
     if not prompt:
         return _error(400, "Empty prompt")

@@ -63,7 +63,10 @@ Built as part of the LeightonSec SOC Toolkit.
      (gated — obfuscation + weak or alone does NOT escalate)
    - Weak-signal deference: lone weak keyword + CLEAN verdict → LOW (FP reduction)
    - Embedded + split base64 with strict-UTF-8/meaningfulness guards; mixed-token leet only
-   - Live smoke test now 20/20 (was 18/20); 70 offline tests
+   - Role-marker / chat-template signals (medium): system:/assistant: (line-anchored)
+     + ChatML im_start/im_end — partial coverage of the keyword-free injection residual
+     (an inherent LLM-classification ceiling; see SECURITY.md §10 "Residual risk")
+   - Live smoke test now 20/20 (was 18/20); 76 offline tests
 
 ## Next Steps
 - [ ] Gate 4b — cloud deploy: target decision (ECS Fargate vs App Runner), managed

@@ -220,9 +220,32 @@ signals mean:
 - **Mixed-token leetspeak.** Leet substitution applies only to tokens mixing
   letters and leet chars (`m4ke`), so `I have 5 cats` is left intact (the old
   global map turned it into `s cats`).
+- **Role-marker / chat-template signals (medium).** Forged conversation turns —
+  `system:` / `assistant:` at line start, and ChatML `<|im_start|>` / `<|im_end|>`
+  markers — are scored medium. These are the keyword-free injection class the LLM
+  layer is otherwise solely exposed to (see *Residual risk* below). Role prefixes
+  are anchored to line start so legitimate mid-sentence use (`the operating
+  system: linux`) does not false-positive; the ChatML core (`im_start`/`im_end`)
+  is matched post-normalisation, where `<|…|>` has been de-leeted to `<l…l>`.
 
 Result: the two live smoke-test misses are fixed (leetspeak-malware → HIGH;
 borderline researcher → LOW) with **no regressions** — 20/20 live.
+
+### Residual risk — the honest ceiling
+
+A genuinely malicious prompt that contains no strong/medium/weak keyword, is not
+obfuscated, and is not a hard marker is classified **solely by the LLM layer**.
+If such an input also successfully steers the model to emit `VERDICT: CLEAN`, the
+fused risk resolves to LOW. This is an **inherent ceiling of LLM-based
+classification — mitigated by prompt isolation (per-request random boundary, role
+separation, hostile-data framing) and fail-closed output fusion, but not
+eliminable in code.** The keyword layer cannot add a backstop for an attack
+class defined by the absence of keywords; the role-marker / chat-template signals
+above *narrow* this residual (they catch the most common keyword-free injection
+shapes) but do not close it. Keyword-free **novel** attacks remain bounded by, and
+only by, the model's robustness to in-band injection — which is exactly why the
+classifier never acts on the model's free text (only a constrained verdict
+vocabulary is consumed; the `REASON` string is display-only).
 
 ---
 

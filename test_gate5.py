@@ -9,8 +9,8 @@ import base64
 
 import pytest
 
-import detector
-from detector import (
+from ai_firewall import detector
+from ai_firewall.detector import (
     _normalise, keyword_scan, calculate_risk, analyse_prompt,
     _try_b64_decode,
 )

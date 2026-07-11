@@ -22,7 +22,8 @@ ENV PATH="/opt/venv/bin:$PATH" \
 
 COPY --from=build /opt/venv /opt/venv
 # Copy ONLY what runs — never the repo wholesale, so .env/tests/venv can't leak in.
-COPY --chown=appuser:appuser app.py auth.py detector.py logger.py ./
+COPY --chown=appuser:appuser app.py auth.py logger.py ./
+COPY --chown=appuser:appuser ai_firewall/ ./ai_firewall/
 COPY --chown=appuser:appuser templates/ ./templates/
 
 # SQLite store lives here; mount a volume to persist across restarts.

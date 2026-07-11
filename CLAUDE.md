@@ -15,7 +15,8 @@ Built as part of the LeightonSec SOC Toolkit.
 ## Architecture
 - `app.py` — Flask server, API routes, auth gating, sanitized errors, security headers
 - `auth.py` — Dual auth: session login (human) + API key (machine); werkzeug hashes
-- `detector.py` — Two-layer detection (keyword scan + Claude API), risk scoring
+- `ai_firewall/` — installable detection library (pyproject.toml; consumed by llm-honeypot Phase B as a SHA-pinned git dep)
+- `ai_firewall/detector.py` — Two-layer detection (keyword scan + Claude API), risk scoring
 - `logger.py` — SQLite persistence (detections + stats + history query + legacy importer)
 - `templates/index.html` — Web dashboard · `templates/login.html` — login page
 - `logs/detections.db` — SQLite detection store (gitignored)
@@ -25,7 +26,7 @@ Built as part of the LeightonSec SOC Toolkit.
 - `requirements*.in` / `requirements*.txt` — hash-pinned lockfiles (runtime + dev)
 - `accepted-findings.toml` — security-gate waivers (FP/by-design; the real unpinned-deps finding was fixed, not waived)
 - `SECURITY.md` — Threat model and defended pillars (Gate 1–4a)
-- `test_gate1.py` / `test_gate2.py` / `test_gate3.py` / `test_gate5.py` — Offline unit tests (70 total)
+- `test_gate1.py` / `test_gate2.py` / `test_gate3.py` / `test_gate5.py` / `test_gate6.py` — Offline unit tests (82 total)
 - `test_detector.py` — End-to-end detection suite (requires a live API key)
 
 ## Current Status
@@ -69,6 +70,14 @@ Built as part of the LeightonSec SOC Toolkit.
      + ChatML im_start/im_end — partial coverage of the keyword-free injection residual
      (an inherent LLM-classification ceiling; see SECURITY.md §10 "Residual risk")
    - Live smoke test now 20/20 (was 18/20); 76 offline tests
+✅ Gate 6 — library packaging (Phase B G1 for llm-honeypot):
+   - `ai_firewall/` installable package + pyproject.toml (library deps only — no
+     web stack for git-dependency consumers); version 0.2.0
+   - P6a fence residuals closed: exact-format boundary extraction-integrity
+     test, boundary-collision re-roll (invariant, not 2^-64 acceptance),
+     framing rules pinned by semantics not keywords (proxy-test class)
+   - CI container import smoke (image's own copy set, not the checkout);
+     accepted-findings waiver path pinned exact; 82 offline tests
 
 ## Next Steps
 - [ ] Gate 4b — cloud deploy: target decision (ECS Fargate vs App Runner), managed
@@ -97,8 +106,8 @@ Built as part of the LeightonSec SOC Toolkit.
 - Never trust the API reason string in decision logic — display only
 
 ## Conventions
-- Detection logic stays in detector.py
-- New keywords go in TIER_PATTERNS (strong/medium/weak) in detector.py; the most
+- Detection logic stays in ai_firewall/detector.py (the library package — app code never grows detection logic)
+- New keywords go in TIER_PATTERNS (strong/medium/weak) in ai_firewall/detector.py; the most
   unambiguous markers go in HARD_MARKERS (short-circuit to HIGH)
 - Logs always written via logger.py
 - Risk levels always strings: "LOW", "MEDIUM", "HIGH"

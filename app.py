@@ -5,7 +5,7 @@ from flask import (
 from werkzeug.middleware.proxy_fix import ProxyFix
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from detector import analyse_prompt
+from ai_firewall.detector import analyse_prompt
 from logger import log_detection, get_stats, query_history
 from auth import verify_login, login_required, api_key_required
 

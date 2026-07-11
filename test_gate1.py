@@ -8,8 +8,8 @@ Covers the three Gate 1 fixes:
 
 Run: pytest test_gate1.py -q   (no ANTHROPIC_API_KEY needed — client is lazy)
 """
-import detector
-from detector import (
+from ai_firewall import detector
+from ai_firewall.detector import (
     calculate_risk, validate_api_result, build_classification_request,
     has_hard_marker, analyse_prompt,
 )

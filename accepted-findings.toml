@@ -93,7 +93,11 @@ date      = "2026-06-28"
 
 [[accepted]]
 scanner   = "outbound_calls"
-file      = "detector.py"
+# Path updated 2026-07-11 with the ai_firewall/ package move. The gate's file
+# match is loose (the old bare "detector.py" still bound to the new path) —
+# kept exact here so this waiver can never bind to some future detector.py
+# elsewhere in the tree and silently widen its own scope.
+file      = "ai_firewall/detector.py"
 match     = "Anthropic(api_key=os.getenv"
 rationale = "By design. ai-firewall is an LLM-backed classifier; the Claude API call is its core function, not optional offline inference. The prompt sent is wrapped in a per-request random boundary and framed as untrusted data (see SECURITY.md sections 2-3); no secrets or PII are sent (the prompt under analysis only)."
 reviewer  = "leighton"

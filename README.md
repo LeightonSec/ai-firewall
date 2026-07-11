@@ -78,7 +78,9 @@ Then open `http://127.0.0.1:5000` in your browser.
 
 ai-firewall/
 ├── app.py          # Flask web server & API routes
-├── detector.py     # Core detection logic (keyword + API scan)
+├── ai_firewall/    # Installable detection library (pip install git+...@sha)
+│   └── detector.py # Core detection logic (keyword + API scan)
+├── pyproject.toml  # Library packaging — detection logic only, no web stack
 ├── logger.py       # JSON logging & statistics
 ├── templates/
 │   └── index.html  # Web interface & dashboard
@@ -111,7 +113,7 @@ ai-firewall/
 - **Threshold sensitivity**: Scoring thresholds are conservative by design —
   false positives (blocked legitimate prompts) are preferred over false negatives
   (missed attacks). Tune `SCORE_THRESHOLD_HIGH` and `SCORE_THRESHOLD_MEDIUM` in
-  `detector.py` for your use case.
+  `ai_firewall/detector.py` for your use case.
 
 - **Keyword false positives**: Phrases like `"act as a security researcher"` trigger
   the `persona_hijack` pattern (`act as`) and score MEDIUM despite being legitimate.

@@ -44,6 +44,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build image
         run: docker build -t ai-firewall:ci .
+      # A missing COPY (e.g. the ai_firewall/ package dir) builds fine and
+      # crashes at container startup — nothing catches it before deploy. Import
+      # the app inside the built image so the image's OWN copy set is what's
+      # exercised, not the checkout. (Review catch, 2026-07-11.)
+      - name: Container import smoke
+        run: docker run --rm --entrypoint python ai-firewall:ci -c "import app; print('image imports ok')"
       - name: Trivy vulnerability scan
         uses: aquasecurity/trivy-action@master
         with:

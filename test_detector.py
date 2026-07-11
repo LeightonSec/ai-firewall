@@ -4,7 +4,7 @@ Tests the full analysis pipeline against known jailbreak attempts and clean prom
 Pass criteria: HIGH risk correctly identified, LOW risk not over-flagged.
 """
 
-from detector import analyse_prompt, normalise_prompt
+from ai_firewall.detector import analyse_prompt, normalise_prompt
 
 def debug_normalise(prompt: str):
     """Print original and normalised form of a prompt for inspection."""

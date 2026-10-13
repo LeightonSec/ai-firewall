@@ -51,9 +51,12 @@ jobs:
       - name: Container import smoke
         run: docker run --rm --entrypoint python ai-firewall:ci -c "import app; print('image imports ok')"
       - name: Trivy vulnerability scan
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ai-firewall:ci
+          # Pinned explicitly: action default at this commit (v0.70.0) is in GHSA-mcj4-mphf-j9ff range.
+          # Tag pin only; release is marked immutable upstream, binary not hash-verified here.
+          version: v0.75.0
           format: table
           exit-code: "1"
           ignore-unfixed: true

@@ -3,12 +3,16 @@
 # --- Stage 1: build dependencies into an isolated venv ---
 FROM python:3.13-slim AS build
 WORKDIR /app
-RUN python -m venv /opt/venv
+# --without-pip: the venv is copied into the runtime image, and pip's vendored
+# deps (urllib3, msgpack, setuptools) carry their own CVEs. The base image's pip
+# installs into the venv instead; this stage is discarded.
+RUN python -m venv --without-pip /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 COPY requirements.txt .
 # --require-hashes: every package (incl. transitives) must match a pinned hash in
 # the lockfile or the build fails — supply-chain integrity enforced at install.
-RUN pip install --no-cache-dir --require-hashes -r requirements.txt
+# Full interpreter path: PATH puts /opt/venv/bin first, and that venv has no pip.
+RUN /usr/local/bin/python -m pip --python /opt/venv/bin/python install --no-cache-dir --require-hashes -r requirements.txt
 
 # --- Stage 2: minimal runtime ---
 FROM python:3.13-slim AS runtime
@@ -28,6 +32,8 @@ COPY --chown=appuser:appuser templates/ ./templates/
 
 # SQLite store lives here; mount a volume to persist across restarts.
 RUN mkdir -p /app/logs && chown appuser:appuser /app/logs
+# Nothing runs pip at runtime; remove the base image's copy and its vendored deps.
+RUN /usr/local/bin/python -m pip uninstall -y pip
 USER appuser
 
 EXPOSE 5000
